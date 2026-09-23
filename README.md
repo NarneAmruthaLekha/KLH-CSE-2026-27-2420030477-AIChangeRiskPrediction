@@ -1,10 +1,9 @@
 # ImpactFlow
 
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-brightgreen.svg?logo=springboot)](https://spring.io/projects/spring-boot)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.28%2B-blue.svg?logo=kubernetes)](https://kubernetes.io/)
-[![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-v3.x-black.svg?logo=apachekafka)](https://kafka.apache.org/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.7-brightgreen.svg?logo=springboot)](https://spring.io/projects/spring-boot)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111.0-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-v3.7-black.svg?logo=apachekafka)](https://kafka.apache.org/)
 [![Docker](https://img.shields.io/badge/Docker-Containerized-blue.svg?logo=docker)](https://www.docker.com/)
-[![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-orange.svg?logo=githubactions)](https://github.com/features/actions)
 [![DevSecOps](https://img.shields.io/badge/DevSecOps-Secure%20Pipeline-red.svg?logo=security)](https://owasp.org/)
 
 **ImpactFlow** is a cloud-native platform designed to analyze proposed software changes and predict their potential impact and risk prior to deployment. By analyzing component dependencies, code complexity metrics, and historical change patterns, ImpactFlow computes an AI/ML-driven risk score and provides recommendations. This helps development and DevOps teams prevent production incidents, reduce downtime, and deploy with confidence.
@@ -16,6 +15,7 @@
 - [Project Overview](#-project-overview)
 - [Key Features](#-key-features)
 - [System Architecture](#-system-architecture)
+- [Microservices Breakdown](#-microservices-breakdown)
 - [MLOps Workflow](#-mlops-workflow)
 - [DevSecOps & CI/CD Pipeline](#-devsecops--cicd-pipeline)
 - [Directory Structure](#-directory-structure)
@@ -40,80 +40,68 @@ Based on these dimensions, an AI/ML model predicts a **risk score** and generate
 ## ✨ Key Features
 
 - **Automated Impact Analysis:** Identifies affected modules and downstream services.
-- **AI/ML Risk Prediction:** Computes a change risk score using historical data and code complexity.
-- **Service Discovery & Gateway Routing:** Dynamic routing and discovery using Eureka and Spring Cloud Gateway.
+- **AI/ML Risk Prediction:** Computes a change risk score using historical data, LOC delta, cyclomatic complexity, and churn rate.
+- **Service Discovery & Gateway Routing:** Dynamic routing and discovery using Netflix Eureka and Spring Cloud Gateway.
+- **Centralized Configuration:** Spring Cloud Config Server managing configurations dynamically across environments.
 - **Event-Driven Processing:** Kafka-based change event propagation for asynchronous analysis.
+- **Reporting & Web UI:** Live dashboard for tracking submissions, predictions, and impact summaries.
 - **Database-per-Service Pattern:** Isolated datastores for services to ensure scalability and decoupling.
-- **Robust DevSecOps Pipeline:** Automated testing, SonarQube quality checks, Trivy container scans, and OWASP ZAP dynamic testing.
-- **Real-time Monitoring:** Real-time health and performance visualization via Prometheus and Grafana.
 
 ---
 
 ## 🏗️ System Architecture
 
-ImpactFlow is built on a containerized, cloud-native microservices architecture coordinated within a Kubernetes cluster.
+ImpactFlow is built on a containerized, cloud-native microservices architecture.
 
 ### Architecture Topology
 
 ```mermaid
 graph TD
     %% User/Client Interaction
-    Client[Developer / CI-CD Pipeline] -->|HTTPS Requests / JWT| Ingress[NGINX Ingress with TLS]
-    Ingress --> Gateway[Spring Cloud Gateway]
+    Client[Developer / CI-CD Pipeline / Web UI] -->|HTTPS Requests / JWT| Gateway[Spring Cloud Gateway :8080]
     
-    %% Service Discovery
-    Gateway -->|Routes Requests| ServiceA[Change Analyzer Service]
-    Gateway -->|Routes Requests| ServiceB[Risk Predictor Service]
-    Gateway -->|Routes Requests| ServiceC[Metrics & Complexity Service]
-    
-    Eureka[Eureka Service Registry] -.->|Service Registration| Gateway
-    Eureka -.->|Service Registration| ServiceA
-    Eureka -.->|Service Registration| ServiceB
-    Eureka -.->|Service Registration| ServiceC
+    %% Service Discovery & Config
+    ConfigServer[Spring Cloud Config Server :8888] -.->|Configuration| Gateway
+    ConfigServer -.->|Configuration| Eureka[Eureka Server :8761]
+    ConfigServer -.->|Configuration| Auth[Auth Service :8081]
+    ConfigServer -.->|Configuration| Analyzer[Change Analysis Service :8082]
+    ConfigServer -.->|Configuration| Reporter[Report Service :8083]
+
+    Eureka -.->|Service Registration| Gateway
+    Eureka -.->|Service Registration| Auth
+    Eureka -.->|Service Registration| Analyzer
+    Eureka -.->|Service Registration| Reporter
+    Eureka -.->|Service Registration| RiskEngine[Risk Prediction Service :8000]
+
+    %% Gateway Routing
+    Gateway -->|/api/auth/**| Auth
+    Gateway -->|/api/analysis/**| Analyzer
+    Gateway -->|/api/reports/**| Reporter
+    Gateway -->|/api/predictions/**| RiskEngine
 
     %% Asynchronous Messaging
-    ServiceA -->|Publishes Change Events| Kafka{Apache Kafka Broker}
-    Kafka -->|Consumes Events| ServiceB
-    
-    %% Databases (Database-per-Service)
-    ServiceA --> DB_A[(Change DB - PostgreSQL)]
-    ServiceB --> DB_B[(Predictor DB - MongoDB)]
-    ServiceC --> DB_C[(Metrics DB - PostgreSQL)]
-    
-    %% MLOps Subsystem
-    subgraph MLOps Prediction Subsystem
-        ServiceB --> Model[Risk Prediction ML Model]
-        Model -.->|Train / Retrain| MLOps[MLOps Pipeline]
-        MLOps -.-> ModelRegistry[Model Registry]
-    end
+    Analyzer -->|Publishes Change Events| Kafka{Apache Kafka Broker :9092}
+    Kafka -->|Consumes Events| RiskEngine
+    RiskEngine -->|Publishes Enriched Predictions| Kafka
+    Kafka -->|Consumes Predictions| Reporter
 
-    %% Monitoring Subsystem
-    subgraph Prometheus & Grafana Monitoring
-        Prometheus[Prometheus Server] -.->|Scrapes Metrics| ServiceA
-        Prometheus -.->|Scrapes Metrics| ServiceB
-        Prometheus -.->|Scrapes Metrics| ServiceC
-        Prometheus -.->|Scrapes Metrics| Gateway
-        Grafana[Grafana Dashboards] --> Prometheus
-    end
-
-    classDef service fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
-    classDef infra fill:#efebe9,stroke:#5d4037,stroke-width:2px;
-    classDef db fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
-    classDef ml fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
-    
-    class ServiceA,ServiceB,ServiceC,Gateway service;
-    class Eureka,Ingress,Prometheus,Grafana,Kafka infra;
-    class DB_A,DB_B,DB_C db;
-    class Model,MLOps,ModelRegistry ml;
+    %% Web UI
+    Reporter --> WebUI[ImpactFlow Web Dashboard]
 ```
 
-### Component Details
-- **Spring Cloud Gateway:** Entry point for API routing, rate limiting, and JWT authentication checks.
-- **Eureka Server:** Handles service registration and discovery dynamically.
-- **Change Analyzer Service:** Evaluates code commits, file modifications, and dependency graphs.
-- **Risk Predictor Service:** Consumes change events from Kafka, interacts with the ML model, and persists risk scores.
-- **Metrics & Complexity Service:** Evaluates code health (e.g., McCabe cyclomatic complexity, cognitive complexity).
-- **Apache Kafka:** Decouples change ingestion from computationally intensive prediction workflows.
+---
+
+## 📦 Microservices Breakdown
+
+| Service | Port | Technology | Purpose |
+|:---|:---|:---|:---|
+| **eureka-server** | `8761` | Spring Cloud Netflix Eureka | Dynamic service registration & discovery |
+| **config-server** | `8888` | Spring Cloud Config | Centralized configuration management |
+| **api-gateway** | `8080` | Spring Cloud Gateway | Unified API routing, CORS, and request forwarding |
+| **auth-service** | `8081` | Spring Boot, Spring Security, JWT | User authentication, registration & token generation |
+| **change-analysis-service** | `8082` | Spring Boot, Kafka Producer | Ingests code changes, analyzes AST/dependencies |
+| **report-service** | `8083` | Spring Boot, Kafka Consumer, Web UI | Generates impact reports and hosts client UI dashboard |
+| **risk-prediction-service** | `8000` | Python 3.11, FastAPI, Scikit-learn, Kafka | ML engine evaluating cyclomatic complexity and predicting risk score |
 
 ---
 
@@ -128,10 +116,9 @@ The ML system supports continuous integration and retraining to adapt to evolvin
 [ Continuous Monitoring ] <── [ Model Retraining ] <── [ Model Deployment ]
 ```
 
-1. **Data Preparation:** Extracts change metrics, historical commit patterns, and build logs.
-2. **Model Training:** Trains classification and regression models to estimate impact depth and risk score.
-3. **Versioning & Deployment:** Versions models for reproducibility, deploying them via microservice APIs.
-4. **Monitoring:** Prometheus tracks drift in prediction accuracy, triggering alerts for retraining.
+1. **Data Preparation:** Extracts change metrics, historical commit patterns, cyclomatic complexity, and LOC deltas.
+2. **Model Training:** Trains Random Forest / Gradient Boosting regression models to estimate impact depth and risk score.
+3. **Model Deployment:** Packaged with Scikit-learn & Joblib and served asynchronously via FastAPI and Kafka.
 
 ---
 
@@ -139,50 +126,74 @@ The ML system supports continuous integration and retraining to adapt to evolvin
 
 ImpactFlow enforces modern software quality and security practices at every stage of the lifecycle:
 
-```
-[ Developer Commit ] ──> [ Build & Unit Test ] ──> [ Static Analysis (SonarQube) ]
-                                                                 │
-                                                                 ▼
-[ Deploy to K8s via Helm ] <── [ DAST (OWASP ZAP) ] <── [ Trivy Image Scan ]
-```
-
 - **Static Application Security Testing (SAST):** Integrated with SonarQube for code-quality checks and linting.
-- **Software Composition Analysis (SCA) & Container Scanning:** Trivy scans the Docker images for vulnerable base layers and third-party dependencies.
-- **Dynamic Application Security Testing (DAST):** OWASP ZAP evaluates APIs for runtime security flaws (e.g., broken object-level authorization, injection).
-- **GitOps-driven Deployments:** Configuration managed using Helm charts and rolled out to Kubernetes using rolling updates.
+- **Containerization & Scanning:** Docker container definitions and Trivy vulnerability scans.
+- **Dynamic Application Security Testing (DAST):** OWASP ZAP evaluates APIs for runtime security flaws.
 
 ---
 
 ## 📂 Directory Structure
 
-The repository is structured to separate source code, configuration files, test outputs, and documentation:
-
 ```
-ImpactFlow/
-├── src/             # Core source code
-│   ├── gateway/     # Spring Cloud Gateway service
-│   ├── registry/    # Eureka Service Registry
-│   ├── analyzer/    # Change Analyzer Microservice
-│   ├── predictor/   # Risk Predictor Microservice
-│   └── ML-model/    # Python-based ML training and prediction scripts
-├── docs/            # Architecture blueprints, API contracts, and guides
-├── reports/         # Security vulnerability, SonarQube, and test reports
-├── results/         # Model metrics, outputs, and validation charts
-└── data/            # Datasets for model training and testing
+Project(ImpactFlow)/
+├── docker-compose.yml          # Kafka and broker orchestration
+├── docs/                       # Architecture blueprints, SRS, HLD/LLD, UML diagrams, Agile backlog
+│   ├── agile/
+│   │   └── backlog.md
+│   ├── hld-lld/
+│   │   └── hld.md
+│   ├── srs/
+│   │   └── srs.md
+│   └── uml/
+│       ├── class-diagram.md
+│       └── use-case.md
+└── services/                   # Cloud-native microservices
+    ├── pom.xml                 # Maven multi-module parent
+    ├── eureka-server/          # Service Discovery Registry (8761)
+    ├── config-server/          # Spring Cloud Config Server (8888)
+    ├── api-gateway/            # Spring Cloud Gateway (8080)
+    ├── auth-service/           # Authentication & JWT Provider (8081)
+    ├── change-analysis-service/# Change ingestion & AST analysis (8082)
+    ├── report-service/         # Report generation & Web UI (8083)
+    └── risk-prediction-service/# Python FastAPI ML Risk Engine (8000)
 ```
 
 ---
 
 ## 🚀 Getting Started
 
-*(Detailed deployment and setup instructions will be updated here as service components are populated.)*
-
 ### Prerequisites
-- Java 17+ (JDK)
-- Docker & Kubernetes (Minikube or Kind)
-- Apache Kafka
-- Python 3.9+ (for ML scripts)
-- Helm
+- **Java 21 (JDK)**
+- **Apache Maven 3.9+**
+- **Python 3.11+**
+- **Docker** (for Kafka container)
+
+### Quick Start
+
+1. **Start Kafka Broker:**
+   ```bash
+   docker compose up -d
+   ```
+
+2. **Build and Run Backend Microservices:**
+   ```bash
+   cd services
+   mvn clean package -DskipTests
+   ```
+   Start the services in the following order:
+   - `eureka-server` (Port 8761)
+   - `config-server` (Port 8888)
+   - `api-gateway` (Port 8080)
+   - `auth-service` (Port 8081)
+   - `change-analysis-service` (Port 8082)
+   - `report-service` (Port 8083)
+
+3. **Start Python Risk Prediction Service:**
+   ```bash
+   cd services/risk-prediction-service
+   pip install -r requirements.txt
+   uvicorn main:app --port 8000
+   ```
 
 ---
 
@@ -201,4 +212,4 @@ ImpactFlow/
 - **Guide:** SWAPNA REDDY
 
 ---
-*Developed as part of the Advanced Software Engineering & DevSecOps Course curriculum.*
+*ImpactFlow - AI-Powered Change Risk Prediction Platform*

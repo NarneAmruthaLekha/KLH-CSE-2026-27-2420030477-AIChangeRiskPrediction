@@ -10,7 +10,7 @@
 .DS_Store
 Thumbs.db
 
-# Build and Target directories
+# Maven and Build artifacts
 target/
 build/
 bin/
@@ -18,8 +18,9 @@ out/
 .gradle/
 .pnpm-store/
 node_modules/
+*.class
 
-# Python / Machine Learning files
+# Python and Machine Learning environments
 __pycache__/
 *.py[cod]
 *$py.class
@@ -31,16 +32,9 @@ env/
 dist/
 eggs/
 *.egg-info/
-*.model
-*.pkl
-*.h5
 
-# Database and Log files
+# Logs and local configurations
 *.log
 *.sqlite
 .env
 .env.local
-
-# Kubernetes / Helm temp files
-*.charts
-charts/*-*.tgz
